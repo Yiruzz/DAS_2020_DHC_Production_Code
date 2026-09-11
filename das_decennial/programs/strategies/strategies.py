@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import programs.strategies.dhch_strategies as dhch_strategies
 import programs.strategies.dhcp_strategies as dhcp_strategies
+import programs.strategies.strategies_1940 as strategies_1940
 
 class PL94Strategy:
     """ Parent class to define the schema attribute(s). It is only needed for unit testing impact gaps"""
@@ -2903,6 +2904,7 @@ class StrategySelector:
         'test_strategy_dhch_20220922_exp_iteration_23_1': dhch_strategies.DecompTestStrategyDHCH_20220922_exp_iteration_23_1,
         'test_strategy_dhch_pr_20220922_exp_iteration_23_2': dhch_strategies.DecompTestStrategyDHCH_PR_20220922_exp_iteration_23_2,
         'test_strategy_dhch_20220922_exp_iteration_23_2': dhch_strategies.DecompTestStrategyDHCH_20220922_exp_iteration_23_2,
+        'strategy_1940': strategies_1940.Strategy1940,
     }
 
 
@@ -2949,4 +2951,5 @@ class QueryOrderingSelector:
 
         'test_strategy_regular_ordering_dhch_20220922_exp_iteration_23_1' : dhch_strategies.DecompTestStrategyRegularOrderingDHCH_20220922_exp_iteration_23_1,
         'test_strategy_regular_ordering_dhch_20220922_exp_iteration_23_2' : dhch_strategies.DecompTestStrategyRegularOrderingDHCH_20220922_exp_iteration_23_2,
+        'strategy_1940_regular_ordering'                                  : strategies_1940.Strategy1940RegularOrdering,
     }
