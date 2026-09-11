@@ -298,15 +298,34 @@ Decompress first — a gzip file is not splittable and would run on one task:
 gunzip -k EXT1940USCB.dat.gz     # 39.5 GB
 ```
 
+### The size of the national file
+
+Measured directly from `EXT1940USCB.dat.gz`:
+
+| | Count |
+|---|---|
+| Persons | 132,404,766 |
+| Households | 38,492,963 |
+| Enumeration districts | 152,009 |
+| Supervisor's districts | 3,205 |
+| Counties | 3,108 |
+| States | 51 |
+| **Geographic units (incl. National)** | **158,374** |
+
+The person count is within 0.2% of the official 1940 census total of
+132,164,569, which confirms the extract is the complete enumeration.
+
 ### What changes
 
+- **Optimisation count.** The topdown engine solves one problem per geographic
+  unit at every level, each over 44,544 variables — **158,374 Gurobi solves,
+  about 7.05 billion variables in total.** At an optimistic two seconds per
+  solve that is roughly 88 hours of sequential solve time. Alaska's 239 solves
+  are 0.15% of the national job.
 - **Disk.** 39.5 GB of input, plus the reader's `CEFhistograms.pickle`
   checkpoint (`table_reader.py:617`), plus output. Allow 150 GB.
-- **Optimisation count.** One Gurobi solve per geographic unit at every level,
-  each over 44,544 variables. Alaska needs 239; the national file is three
-  orders of magnitude larger. See the note below.
 - **Memory.** The National level aggregates the entire country into one node.
-  Raise `--driver-memory` substantially, and consider
+  Raise `--driver-memory` substantially, and keep
   `spark.driver.maxResultSize=0`.
 - **Parallelism.** `local[*]` on one machine serialises the work. This is what
   the cluster settings in `run_cluster.sh:240-245` exist for
@@ -318,8 +337,11 @@ A full national run is a cluster job, not a laptop job. If a single machine is
 all you have, the practical approach is to run state by state: set
 `geolevel_names` to `Enumdist,Supdist,County,State`, drop `National`, adjust
 `geolevel_budget_prop` to four values, and feed one state's records at a time.
-Note that this changes the privacy accounting — the top-level geounit becomes
-the state — and must be stated as such in any write-up.
+Splitting by state is mechanical, since person records carry no `STATEFIP` —
+select the household records for a state, then the person records whose
+`SERIAL` matches. Note that this changes the privacy accounting: the top-level
+geounit becomes the state rather than the nation, and that must be stated as
+such in any write-up.
 
 ---
 
