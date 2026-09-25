@@ -17,7 +17,6 @@ LOG="$BASE/out/alaska.log"
 # shellcheck disable=SC1090
 set -a; . "$BASE/env.sh"; set +a
 
-[ -r "$DAS_1940_INPUT/EXT1940USCB_AK.dat" ] || { echo "missing input data"; exit 1; }
 
 if pgrep -u "$USER" -f "run_1940.py" >/dev/null 2>&1; then
   echo "a DAS run is already in progress:"
@@ -100,6 +99,16 @@ DRIVER_MEM="${DAS_DRIVER_MEMORY:-16g}"
 # set_parameter (driver.py:1008) splits on ':' and requires exactly two, so
 # neither value may contain a colon.
 GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+# Which extract to read. The config names the Alaska subset (reader:
+# PersonData.path / UnitData.path), so anything else is selected here rather
+# than by editing it. For a scaling series:
+#   DAS_1940_DATAFILE=EXT1940USCB_OR.dat bash deploy1940/run_alaska.sh
+# Note set_parameter (driver.py:1008) requires exactly two colons, so the
+# resolved path must not contain one.
+DATAFILE="${DAS_1940_DATAFILE:-EXT1940USCB_AK.dat}"
+[ -r "$DAS_1940_INPUT/$DATAFILE" ] || { echo "missing $DAS_1940_INPUT/$DATAFILE"; exit 1; }
+echo "input $DATAFILE  ($(du -h "$DAS_1940_INPUT/$DATAFILE" | cut -f1))"
 echo "run uuid $DAS_RUN_UUID   commit $GIT_COMMIT"
 echo "spark: local[$WORKERS], driver memory $DRIVER_MEM"
 
@@ -113,6 +122,8 @@ setsid nohup spark-submit \
   --loglevel INFO \
   --set "environment:DAS_RUN_UUID:$DAS_RUN_UUID" \
   --set "reader:git_commit:$GIT_COMMIT" \
+  --set "reader:PersonData.path:$DAS_1940_INPUT/$DATAFILE" \
+  --set "reader:UnitData.path:$DAS_1940_INPUT/$DATAFILE" \
   >> "$LOG" 2>&1 < /dev/null &
 
 PID=$!

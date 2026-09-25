@@ -277,7 +277,14 @@ class DASEngineHierarchical(AbstractDASEngine, metaclass=ABCMeta):
         """
         if self.postprocess_only:
             self.annotate("Loading modified block DAS geoids")
-            if self.saveloc is not None:
+            # The write side of this file is guarded by
+            # "modified_block_geoids" in self.setup.__dict__ (:304), which a
+            # non-AIAN spine never sets because the reader skips spine
+            # reconstruction entirely. The read side was unguarded, so
+            # postprocess_only always tried to fetch a BlockGeoids.csv that had
+            # never been written -- making the only budget-preserving restart
+            # path unusable on exactly the spine that needs no reconstruction.
+            if self.saveloc is not None and self.spine_type != CC.NON_AIAN_SPINE:
                 block_geoids_path = os.path.join(self.saveloc, f"{self.saved_noisy_app_id}-BlockGeoids.csv")
                 with tempfile.NamedTemporaryFile(dir=get_tmp(), mode='wb') as tf:
                     subprocess.check_call(['aws', 's3', 'cp', '--quiet', '--no-progress', block_geoids_path, tf.name])
