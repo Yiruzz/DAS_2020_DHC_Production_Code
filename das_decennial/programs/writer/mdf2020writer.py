@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from pyspark import RDD
 from pyspark.sql import DataFrame, Row, SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, LongType
-from programs.writer.writer import DASDecennialWriter
+from programs.writer.writer import DASDecennialWriter, openPathOrS3
 from programs.writer.rowtools import makeHistRowsFromMultiSparse
 from programs.writer.hh2010_to_mdfunit2020 import Household2010ToMDFUnit2020Recoder, H12020MDFHousehold2020Recoder # Household 2010 Recoder (Demonstration Products)
 from programs.writer.dhcp_hhgq_to_mdfpersons2020 import DHCPHHGQToMDFPersons2020Recoder # DHCP HHGQ Recoder (Demonstration Products)
@@ -30,7 +30,7 @@ class MDF2020Writer(DASDecennialWriter):
     def saveHeader(self, *, path: str):
         """Saves header to the requested S3 location. This header will then be combined with the contents by the s3cat command"""
         self.annotate(f"writing header to {path}")
-        with s3open(path, "w", fsync=True) as f:
+        with openPathOrS3(path, "w", fsync=True) as f:
             f.write("|".join(self.var_list))
             f.write("\n")
 

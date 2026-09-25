@@ -56,6 +56,22 @@ from typing import Union
 from pyspark import RDD
 
 
+def openPathOrS3(path: str, mode: str = 'r', fsync: bool = False):
+    """s3open() for s3:// paths, the builtin open() for everything else.
+
+    s3open (das_framework/ctools/s3.py:467) raises ValueError on any path that
+    does not start with s3://, and the writer calls it unconditionally for the
+    metadata and header files. Production always writes to S3, so the local
+    case was never exercised.
+    """
+    if path.startswith('s3://'):
+        return s3open(path, mode, fsync=fsync)
+    if 'w' in mode or 'a' in mode:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+    return open(path, mode, encoding='utf-8')
+
 class DASDecennialWriter(driver.AbstractDASWriter, metaclass=ABCMeta):
 
     def __init__(self, **kwargs) -> None:
@@ -156,7 +172,7 @@ class DASDecennialWriter(driver.AbstractDASWriter, metaclass=ABCMeta):
             mission_name= 'None'
 
         self.annotate(f"writing metadata to {path} {now} count={count}")
-        with s3open(path, "w", fsync=True) as f:
+        with openPathOrS3(path, "w", fsync=True) as f:
             classification_level = self.getconfig(CC.CLASSIFICATION_LEVEL, section=CC.WRITER, default=CC.DEFAULT_CLASSIFICATION_LEVEL)
             classification_level = classification_level.replace("_","")
             f.write("# Classification: {}\n".format(classification_level))
