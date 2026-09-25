@@ -89,6 +89,18 @@ cd "$DAS_REPO"
 #   DAS_SPARK_WORKERS=8 DAS_DRIVER_MEMORY=8g bash deploy1940/run_alaska.sh
 WORKERS="${DAS_SPARK_WORKERS:-$(n=$(nproc 2>/dev/null || echo 4); [ "$n" -gt 4 ] && echo $((n - 4)) || echo "$n")}"
 DRIVER_MEM="${DAS_DRIVER_MEMORY:-16g}"
+
+# Stamped into the MDF metadata header. Both go through --set (driver.py:1066),
+# which is applied BEFORE config_apply_environment (:1165) -- and that function
+# reads config[ENVIRONMENT][var] raw, without do_expandvars, so a $VAR written
+# in the config is exported to the environment LITERALLY and clobbers the real
+# value. That is why the first complete run recorded
+#     # DAS RUNID: $DAS_RUN_UUID
+# instead of the id. Passing a resolved literal here sidesteps it. Note that
+# set_parameter (driver.py:1008) splits on ':' and requires exactly two, so
+# neither value may contain a colon.
+GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+echo "run uuid $DAS_RUN_UUID   commit $GIT_COMMIT"
 echo "spark: local[$WORKERS], driver memory $DRIVER_MEM"
 
 setsid nohup spark-submit \
@@ -99,6 +111,8 @@ setsid nohup spark-submit \
   run_1940.py \
   configs/Census1940/DDP2010_Update/ipums_1940_local.ini \
   --loglevel INFO \
+  --set "environment:DAS_RUN_UUID:$DAS_RUN_UUID" \
+  --set "reader:git_commit:$GIT_COMMIT" \
   >> "$LOG" 2>&1 < /dev/null &
 
 PID=$!
