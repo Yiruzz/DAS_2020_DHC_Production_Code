@@ -66,10 +66,22 @@ PHASES = [
 
 
 def newest_log():
+    """The DAS's own log if it exists, otherwise the launcher's stdout capture.
+
+    clogging.setup() is configured with [logging] logfolder, but that directory
+    has held only .dfxml files in practice -- the handler's .log does not always
+    land there. out/alaska.log is written by the launcher's redirect and always
+    exists, and carries the same ANNOTATE lines (twice each: annotate() both
+    prints and logs, and both go to stdout).
+    """
     here = os.path.dirname(os.path.abspath(__file__))
-    pattern = os.path.join(os.path.dirname(here), "das_decennial", "logs", "*.log")
-    files = sorted(glob.glob(pattern), key=os.path.getmtime)
-    return files[-1] if files else None
+    clone = os.path.dirname(here)
+    candidates = glob.glob(os.path.join(clone, "das_decennial", "logs", "*.log"))
+    candidates += [os.path.join(os.path.dirname(clone), "out", "alaska.log")]
+    candidates = [f for f in candidates if os.path.isfile(f)]
+    if not candidates:
+        return None
+    return max(candidates, key=os.path.getmtime)
 
 
 def read_phases(path):

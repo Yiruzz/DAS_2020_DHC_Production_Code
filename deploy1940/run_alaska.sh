@@ -116,6 +116,21 @@ echo "input $DATAFILE  ($(du -h "$DAS_1940_INPUT/$DATAFILE" | cut -f1))"
 # balance. Raise it for the national file.
 READER_PARTS="${DAS_1940_READER_PARTITIONS:-100}"
 echo "reader partitions $READER_PARTS"
+
+# Gurobi threads. The release is tuned for EMR nodes and oversubscribes badly
+# on one box: DEFAULT_THREADS_R2R is 64 (das_constants.py:984) for the
+# root-to-root solves, and every other node leaves model.Params.Threads at
+# Gurobi's default of all cores (optimizer.py:344,711). With local[N] that is N
+# concurrent solves each asking for every core -- 480 threads on 24 here, which
+# the national run's log confirms:
+#     Warning: Thread count (64) is larger than processor count (24)
+#
+# One thread per solve for the per-node models, since Spark already provides the
+# parallelism, and the whole machine for the root group, which runs alone.
+NPROC="$(nproc 2>/dev/null || echo 4)"
+THREADS_NODE="${DAS_1940_GUROBI_THREADS:-1}"
+THREADS_ROOT="${DAS_1940_GUROBI_THREADS_ROOT:-$NPROC}"
+echo "gurobi threads: $THREADS_NODE per node, $THREADS_ROOT at the root group"
 echo "run uuid $DAS_RUN_UUID   commit $GIT_COMMIT"
 echo "spark: local[$WORKERS], driver memory $DRIVER_MEM"
 
@@ -132,6 +147,8 @@ setsid nohup spark-submit \
   --set "reader:PersonData.path:$DAS_1940_INPUT/$DATAFILE" \
   --set "reader:UnitData.path:$DAS_1940_INPUT/$DATAFILE" \
   --set "reader:numReaderPartitions:$READER_PARTS" \
+  --set "gurobi:Threads:$THREADS_NODE" \
+  --set "gurobi:threads_root2root:$THREADS_ROOT" \
   >> "$LOG" 2>&1 < /dev/null &
 
 PID=$!

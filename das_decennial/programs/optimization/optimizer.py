@@ -655,6 +655,17 @@ class GeoOptimizer(Optimizer, metaclass=ABCMeta):
 
         s3prefix = os.path.join(self.do_expandvars(val=self.save_lp_path, expandvars=True), self.identifier)
         s3prefix = s3prefix.replace(' ','_')
+
+        # There is nowhere to put an LP file off S3. save_lp_path defaults to
+        # '$DAS_S3ROOT/lpfiles/$JBID/$MISSION_NAME' (das_constants.py:216), which
+        # off EMR resolves to an ordinary directory; urlparse then gives netloc ''
+        # and boto3 raises ParamValidationError: Invalid bucket name "" -- inside
+        # a Spark task, killing the run. Nothing here is essential: the LP file is
+        # a debugging artifact, and every caller already handles None.
+        if not s3prefix.startswith('s3://'):
+            logging.info('saveModelToS3: %s is not an S3 path; not saving the LP file '
+                         'for %s', s3prefix, self.identifier)
+            return None
         s3path   = (os.path.join(s3prefix , self.identifier + "_" + str(uuid.uuid4()) + ".zip")).replace(' ','_')
 
         # Count how many files have been saved with this prefix. If it is more than 10, don't save
