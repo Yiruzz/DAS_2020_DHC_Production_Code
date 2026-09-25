@@ -436,7 +436,12 @@ class DASEngineHierarchical(AbstractDASEngine, metaclass=ABCMeta):
             elif das_utils.isS3Path(path):
                 level_rdd = spark.sparkContext.pickleFile(path)
             else:
-                level_rdd = spark.sparkContext.parallelize(pickle.load(path))
+                # Was: parallelize(pickle.load(path)). That cannot work: the data is
+                # written by savePickledRDD -> rdd.saveAsPickleFile, which produces a
+                # directory of Spark-pickled part files, and pickle.load expects a file
+                # object rather than the path string it is handed. Local paths take the
+                # same API as the other two branches.
+                level_rdd = spark.sparkContext.pickleFile(path)
             # level_rdd = level_rdd.map(lambda node: node.unzipNoisy())
             nodes_dict[level] = level_rdd if self.use_spark else RDDLikeList(level_rdd.collect())
 
