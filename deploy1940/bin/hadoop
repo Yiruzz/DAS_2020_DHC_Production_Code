@@ -1,0 +1,63 @@
+#!/bin/sh
+# Minimal stand-in for the `hadoop` CLI, for running the DAS on a single host.
+#
+# WHY: das_utils.clearPath() (das_utils.py:286) has exactly two branches -- S3
+# paths go to the `aws` CLI, and EVERYTHING else is handed to
+# `hadoop fs -rm -r <path>` (das_utils.py:299). There is no local-filesystem
+# branch. Its except clause catches SubprocessError and ValueError, but a
+# missing executable raises FileNotFoundError (an OSError), so the run dies.
+#
+# clearPath is reached from savePickledRDD (das_utils.py:407), which is called
+# from table_reader.py:619,733, engine_utils.py:240,412,
+# accuracy_metrics.py:1210,1236 and block_node_writer.py:78, and directly from
+# writer.py:229. Supplying the CLI covers all of them at once, and leaves the
+# published code paths and defaults untouched -- unlike disabling checkpoints,
+# which would change behaviour.
+#
+# PySpark ships Hadoop's jars but not this CLI. In local mode Spark's default
+# filesystem is file://, so saveAsPickleFile and pickleFile already work
+# natively; deletion is the only gap.
+#
+# Only `fs -rm [-r]` is implemented. Anything else exits 0 quietly.
+#
+# SAFETY: this shim runs `rm -rf`, so it refuses any path that is not strictly
+# inside $HOME, and any path with fewer than 3 slashes. Not part of the repo.
+
+log() { echo "hadoop-shim: $*" >&2; }
+
+[ "$1" = "fs" ] && shift
+
+op=""
+paths=""
+for a in "$@"; do
+  case "$a" in
+    -rm|-rmr|-rmdir) op="rm" ;;
+    -r|-R|-f|-skipTrash) ;;
+    -*) ;;
+    *) paths="$paths $a" ;;
+  esac
+done
+
+if [ "$op" != "rm" ]; then
+  log "ignoring unimplemented command: $*"
+  exit 0
+fi
+
+for p in $paths; do
+  p=${p#file://}
+  case "$p" in
+    "$HOME"/*) ;;
+    *) log "REFUSING (outside \$HOME): $p"; continue ;;
+  esac
+  n=$(printf '%s' "$p" | tr -cd '/' | wc -c)
+  if [ "$n" -lt 3 ]; then
+    log "REFUSING (too few slashes, $n): $p"
+    continue
+  fi
+  if [ -e "$p" ]; then
+    rm -rf -- "$p" && log "removed $p"
+  else
+    log "not present, nothing to remove: $p"
+  fi
+done
+exit 0

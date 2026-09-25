@@ -1,0 +1,71 @@
+#!/bin/sh
+# Minimal stand-in for the `aws` CLI, for running the DAS on a single host.
+#
+# WHY: several code paths shell out to `aws s3` even when every path involved is
+# local. The one the 1940 run reaches is engine_utils.py:314
+#
+#     subprocess.check_call(['aws','s3','cp','--quiet','--no-progress',
+#                            tf.name, block_geoids_path])
+#
+# where block_geoids_path is os.path.join(self.saveloc, ...) and saveloc is a
+# local directory (engine_utils.py:177). So this is a local-to-local copy issued
+# through the AWS CLI. check_call means a missing binary is fatal.
+#
+# saveloc is set on any normal run because save_noisy (engine_utils.py:116) and
+# save_optimized (engine_utils.py:175) both default to True. Supplying the CLI
+# keeps those published defaults -- and the noisy-measurement artifacts they
+# produce -- instead of switching them off.
+#
+# Implements `s3 cp` (including --recursive) and `s3 rm` over local paths.
+# Anything else exits 0 quietly.
+#
+# SAFETY: `s3 rm` maps to `rm -rf`, so it refuses any path outside $HOME and any
+# path with fewer than 3 slashes. Not part of the repo.
+
+log() { echo "aws-shim: $*" >&2; }
+
+[ "$1" = "s3" ] || { log "ignoring non-s3 command: $*"; exit 0; }
+shift
+op="$1"; shift
+
+recursive=""
+args=""
+for a in "$@"; do
+  case "$a" in
+    --recursive) recursive=1 ;;
+    --quiet|--no-progress|--only-show-errors) ;;
+    -*) ;;
+    *) args="$args $a" ;;
+  esac
+done
+# shellcheck disable=SC2086
+set -- $args
+
+case "$op" in
+  cp)
+    [ $# -eq 2 ] || { log "cp needs 2 paths, got $#: $*"; exit 1; }
+    src=${1#file://}; dst=${2#file://}
+    mkdir -p "$(dirname "$dst")" 2>/dev/null
+    if [ -n "$recursive" ]; then
+      mkdir -p "$dst" && cp -r "$src"/. "$dst"/ && log "cp -r $src -> $dst"
+    else
+      cp "$src" "$dst" && log "cp $src -> $dst"
+    fi
+    ;;
+  rm)
+    for p in "$@"; do
+      p=${p#file://}
+      case "$p" in
+        "$HOME"/*) ;;
+        *) log "REFUSING (outside \$HOME): $p"; continue ;;
+      esac
+      n=$(printf '%s' "$p" | tr -cd '/' | wc -c)
+      [ "$n" -lt 3 ] && { log "REFUSING (too few slashes, $n): $p"; continue; }
+      if [ -e "$p" ]; then rm -rf -- "$p" && log "removed $p"; else log "not present: $p"; fi
+    done
+    ;;
+  *)
+    log "ignoring unimplemented s3 op '$op': $*"
+    ;;
+esac
+exit 0
