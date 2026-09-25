@@ -104,8 +104,11 @@ class GeoOptimizerDecomp(L2GeoOpt):
 
             # Set a constraint for each value in query answer
             # In the shape Ax=b (appropriate sense instead of '=')
-            constrs = model.addMConstrs(A=matrix_rep[row_mask, :], x=two_d_vars[:, child_num], sense=sense, b=rhs[row_mask], name=st_con.name)
-            sub_model_comps.extend(constrs)
+            # addMConstrs was removed in Gurobi 10. addMConstr takes the same arguments but
+            # returns one MConstr rather than a list of Constr, hence tolist() -- the same
+            # idiom already used at l2_dataIndep_npass_optimizer_decomp.py:255,257.
+            constrs = model.addMConstr(A=matrix_rep[row_mask, :], x=two_d_vars[:, child_num], sense=sense, b=rhs[row_mask], name=st_con.name)
+            sub_model_comps.extend(constrs.tolist())
 
     def removeRedundantConstrsAndFindSubModels(self, parent_mask, constraints, single_sub_model):
         # Note that this function will not remove some less-obviously-redundant constraints. For example,

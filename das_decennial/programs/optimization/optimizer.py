@@ -578,7 +578,8 @@ class GeoOptimizer(Optimizer, metaclass=ABCMeta):
 
             # Set a constraint for each value in query answer
             # In the shape Ax=b (appropriate sense instead of '=')
-            model.addMConstrs(A=matrix_rep, x=two_d_vars[:, child_num], sense=sense, b=rhs, name=st_con.name)
+            # addMConstrs was removed in Gurobi 10; addMConstr takes the same arguments.
+            model.addMConstr(A=matrix_rep, x=two_d_vars[:, child_num], sense=sense, b=rhs, name=st_con.name)
 
     @staticmethod
     def addGroupedChildTotalConstraint(model, main_hist_size, two_d_vars, child_groups, main_n, rounder=False, child_floor=None) -> None:
