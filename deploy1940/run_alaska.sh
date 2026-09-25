@@ -109,6 +109,13 @@ GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unk
 DATAFILE="${DAS_1940_DATAFILE:-EXT1940USCB_AK.dat}"
 [ -r "$DAS_1940_INPUT/$DATAFILE" ] || { echo "missing $DAS_1940_INPUT/$DATAFILE"; exit 1; }
 echo "input $DATAFILE  ($(du -h "$DAS_1940_INPUT/$DATAFILE" | cut -f1))"
+
+# table_reader.py:360 does spark.read.csv(...).repartition(numReaderPartitions),
+# and that option defaults to 100 (table_reader.py:475). Fine for a state; at
+# 39.5 GB it is ~395 MB per partition, which is coarse for both memory and load
+# balance. Raise it for the national file.
+READER_PARTS="${DAS_1940_READER_PARTITIONS:-100}"
+echo "reader partitions $READER_PARTS"
 echo "run uuid $DAS_RUN_UUID   commit $GIT_COMMIT"
 echo "spark: local[$WORKERS], driver memory $DRIVER_MEM"
 
@@ -124,6 +131,7 @@ setsid nohup spark-submit \
   --set "reader:git_commit:$GIT_COMMIT" \
   --set "reader:PersonData.path:$DAS_1940_INPUT/$DATAFILE" \
   --set "reader:UnitData.path:$DAS_1940_INPUT/$DATAFILE" \
+  --set "reader:numReaderPartitions:$READER_PARTS" \
   >> "$LOG" 2>&1 < /dev/null &
 
 PID=$!
