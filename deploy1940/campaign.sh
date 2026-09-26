@@ -133,6 +133,32 @@ for need in "$DEPLOY/run_alaska.sh" "$DEPLOY/stage_times.py" \
             "$CENSUSDP/venv/bin/activate" "$BASE/data/EXT1940USCB.dat"; do
   [ -e "$need" ] || { say "MISSING $need -- refusing to start"; exit 1; }
 done
+# The shims have to be executable, and git does not carry that bit: every file under
+# deploy1940 is stored 100644, so a pull that rewrites bin/hadoop hands the host a
+# non-executable copy. setup_host.sh chmods them after a clone, which is why this only
+# bites when a later pull touches them -- and it bites 40 minutes in, at the engine's
+# first clearPath, not at launch. Repeating the chmod here costs nothing and makes a
+# pull between runs unable to undo it. The paths are under BASE, so guard() passes.
+for shim in "$DEPLOY/bin/hadoop" "$DEPLOY/bin/aws" "$DEPLOY/bin/dashboard_sink.py"; do
+  [ -f "$shim" ] || { say "MISSING $shim -- refusing to start"; exit 1; }
+  if [ ! -x "$shim" ]; then
+    guard "$shim"; chmod +x "$shim"
+    say "    chmod +x ${shim#$BASE/}  (git does not store the executable bit)"
+  fi
+done
+
+# And they must be the ones PATH finds. The DAS execs a bare `hadoop`/`aws`, so if a
+# real one shadowed the shim every clearPath would run outside the tree these guards
+# define -- the failure this whole script exists to make impossible.
+for tool in hadoop aws; do
+  found="$(command -v "$tool" 2>/dev/null || true)"
+  if [ "$found" != "$DEPLOY/bin/$tool" ]; then
+    say "PATH resolves $tool to '${found:-nothing}', not $DEPLOY/bin/$tool"
+    say "    refusing to start: an unshimmed $tool would act outside $BASE"
+    exit 1
+  fi
+done
+
 if running; then say "a DAS run is already in progress -- refusing to start"; exit 1; fi
 say "    free disk $(free_gb)G, need ${MIN_FREE_GB}G per run"
 
