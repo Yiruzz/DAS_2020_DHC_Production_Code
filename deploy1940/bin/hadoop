@@ -23,6 +23,12 @@
 # SAFETY: this shim runs `rm -rf`, so it refuses any path that is not strictly
 # inside $HOME, and any path with fewer than 3 slashes. Not part of the repo.
 
+# Confinement. These shims stand in for commands whose real versions delete things, so
+# the boundary is derived from where this file lives rather than taken from the
+# environment: bin/ sits at <base>/repo/deploy1940/bin, so three levels up is the das1940
+# tree, and nothing outside it is ever removed or written. Every path the DAS hands these
+# shims is under it ($DAS_1940_OUTPUT and $TMPDIR both are).
+ALLOWED_ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 log() { echo "hadoop-shim: $*" >&2; }
 
 [ "$1" = "fs" ] && shift
@@ -45,9 +51,10 @@ fi
 
 for p in $paths; do
   p=${p#file://}
-  case "$p" in
-    "$HOME"/*) ;;
-    *) log "REFUSING (outside \$HOME): $p"; continue ;;
+  rp=$(readlink -m -- "$p")
+  case "$rp/" in
+    "$ALLOWED_ROOT"/*) ;;
+    *) log "REFUSING (outside $ALLOWED_ROOT): $p"; continue ;;
   esac
   n=$(printf '%s' "$p" | tr -cd '/' | wc -c)
   if [ "$n" -lt 3 ]; then

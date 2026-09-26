@@ -102,11 +102,24 @@ def main():
     ap.add_argument("--units", type=int, default=ALASKA_UNITS)
     ap.add_argument("--records", type=int, default=ALASKA_RECORDS)
     ap.add_argument("--parents", type=int, default=ALASKA_PARENTS)
+    ap.add_argument("--json", action="store_true",
+                    help="emit the timings as JSON instead of the table, for a run record")
     args = ap.parse_args()
 
     path = args.dfxml or newest_dfxml()
     stamps = read_timestamps(path)
     durations, total = stage_durations(stamps)
+
+    if args.json:
+        import json
+        print(json.dumps({
+            "dfxml": path,
+            "total_seconds": round(total, 2),
+            "stage_seconds": {key: round(secs, 2) for key, secs in durations},
+            "measured": {"units": args.units, "parents": args.parents,
+                         "records": args.records},
+        }, indent=1))
+        return
 
     print(f"file      {path}")
     print(f"measured  {args.units:,} units / {args.parents:,} parent groups / "

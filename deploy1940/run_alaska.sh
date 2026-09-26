@@ -98,6 +98,14 @@ DRIVER_MEM="${DAS_DRIVER_MEMORY:-16g}"
 # instead of the id. Passing a resolved literal here sidesteps it. Note that
 # set_parameter (driver.py:1008) splits on ':' and requires exactly two, so
 # neither value may contain a colon.
+# Regenerated per launch, deliberately. env.sh defines it with
+#   DAS_RUN_UUID=${DAS_RUN_UUID:-1940-<UTC>}
+# so once it is exported into a shell it sticks, and two launches from the same
+# session stamp the same id into their MDF metadata -- which is the one thing the
+# id exists to prevent. Observed: two national runs both recorded
+# 1940-20260925T170149Z. Override DAS_1940_RUN_ID to pin it on purpose.
+DAS_RUN_UUID="${DAS_1940_RUN_ID:-1940-$(date -u +%Y%m%dT%H%M%SZ)}"
+export DAS_RUN_UUID
 GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 # Which extract to read. The config names the Alaska subset (reader:

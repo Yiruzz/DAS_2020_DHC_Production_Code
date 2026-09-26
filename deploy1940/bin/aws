@@ -28,8 +28,25 @@ log() { echo "aws-shim: $*" >&2; }
 shift
 op="$1"; shift
 
-recursive=""
-args=""
+# Confinement. This shim stands in for a command that deletes and writes, so the boundary
+# comes from where the file lives rather than from the environment: bin/ sits at
+# <base>/repo/deploy1940/bin, so three levels up is the das1940 tree. Every path the DAS
+# hands this shim is under it ($DAS_1940_OUTPUT and $TMPDIR both are).
+ALLOWED_ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
+
+# Refuses anything resolving outside the tree, and anything suspiciously shallow.
+confined() {
+  rp=$(readlink -m -- "$1")
+  case "$rp/" in
+    "$ALLOWED_ROOT"/*) ;;
+    *) log "REFUSING (outside $ALLOWED_ROOT): $1"; return 1 ;;
+  esac
+  n=$(printf %s "$rp" | tr -cd / | wc -c)
+  [ "$n" -lt 3 ] && { log "REFUSING (too few slashes, $n): $1"; return 1; }
+  return 0
+}
+
+recursive=""args=""
 for a in "$@"; do
   case "$a" in
     --recursive) recursive=1 ;;
@@ -45,6 +62,8 @@ case "$op" in
   cp)
     [ $# -eq 2 ] || { log "cp needs 2 paths, got $#: $*"; exit 1; }
     src=${1#file://}; dst=${2#file://}
+    # The destination was previously unchecked -- the only path in either shim that was.
+    confined "$dst" || exit 1
     mkdir -p "$(dirname "$dst")" 2>/dev/null
     if [ -n "$recursive" ]; then
       mkdir -p "$dst" && cp -r "$src"/. "$dst"/ && log "cp -r $src -> $dst"
@@ -55,12 +74,7 @@ case "$op" in
   rm)
     for p in "$@"; do
       p=${p#file://}
-      case "$p" in
-        "$HOME"/*) ;;
-        *) log "REFUSING (outside \$HOME): $p"; continue ;;
-      esac
-      n=$(printf '%s' "$p" | tr -cd '/' | wc -c)
-      [ "$n" -lt 3 ] && { log "REFUSING (too few slashes, $n): $p"; continue; }
+      confined "$p" || continue
       if [ -e "$p" ]; then rm -rf -- "$p" && log "removed $p"; else log "not present: $p"; fi
     done
     ;;
