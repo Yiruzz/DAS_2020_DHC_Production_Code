@@ -110,6 +110,21 @@ say() { printf '%s  %s\n' "$(date '+%F %T')" "$*" | tee -a "$LOG"; }
 
 free_gb() { df -BG --output=avail "$BASE" 2>/dev/null | tail -1 | tr -dc '0-9'; }
 
+# Swap currently in use, and the cumulative pages the kernel has moved since boot. The LEVEL
+# is not the question -- swap can sit occupied for hours with nothing touching it -- so the
+# run is judged by the DELTAS of pswpin/pswpout and of iowait, which measure activity. That
+# also makes a swap file left dirty by an earlier run harmless to the reading.
+swap_used_mb() { awk '/^SwapTotal:/{t=$2} /^SwapFree:/{f=$2} END{printf "%d", (t-f)/1024}' /proc/meminfo; }
+pages_in()     { awk '/^pswpin /{print $2}'  /proc/vmstat; }
+pages_out()    { awk '/^pswpout /{print $2}' /proc/vmstat; }
+iowait_ticks() { awk '/^cpu /{print $6}' /proc/stat; }
+
+# The run's OWN pages sitting in swap -- which is exactly what ps -o rss= leaves out, and so
+# the reason peak rss alone understates a run the kernel has had to page out.
+own_swap_mb() {
+  ps -u "$USER" -o pid=,args= 2>/dev/null     | grep -E 'run_1940\.py|pyspark'     | awk '{ print $1 }'     | while read -r pid; do awk '/^Swap:/{print $2}' "/proc/$pid/smaps_rollup" 2>/dev/null; done     | awk '{ s += $1 } END { printf "%d", s / 1024 }'
+}
+
 running() { pgrep -u "$USER" -f '[r]un_1940\.py' >/dev/null 2>&1; }
 
 # Resident set size in MB over the run's JVM and its Python workers. pgrep on
@@ -191,6 +206,9 @@ for N in $(seq "$FIRST" "$LAST"); do
   started=$(date +%s)
   peak_mb=0
   samples=0
+  peak_swap_mb=0
+  peak_footprint_mb=0
+  swpin0="$(pages_in)"; swpout0="$(pages_out)"; iow0="$(iowait_ticks)"
   DAS_1940_DATAFILE=EXT1940USCB.dat \
   DAS_1940_READER_PARTITIONS="${DAS_1940_READER_PARTITIONS:-2000}" \
   DAS_DRIVER_MEMORY="${DAS_DRIVER_MEMORY:-64g}" \
@@ -214,17 +232,28 @@ for N in $(seq "$FIRST" "$LAST"); do
       if [ -n "$mb" ] && [ "$mb" -gt 0 ]; then
         samples=$(( samples + 1 ))
         [ "$mb" -gt "$peak_mb" ] && peak_mb="$mb"
+        osw="$(own_swap_mb)"
+        total_mb=$(( mb + ${osw:-0} ))
+        [ "$total_mb" -gt "$peak_footprint_mb" ] && peak_footprint_mb="$total_mb"
       fi
+      sw="$(swap_used_mb)"
+      [ -n "$sw" ] && [ "$sw" -gt "$peak_swap_mb" ] && peak_swap_mb="$sw"
       if [ "$now" -ge "$next_beat" ]; then
         phase="$(grep -oE "Taking noisy measurements at [A-Za-z]+|Geolevel [A-Za-z]+ has been optimized|Creating and running DAS (reader|engine|writer)" "$OUT/alaska.log" 2>/dev/null | tail -1)"
-        say "  ...$(( (now - started) / 60 )) min: ${phase:-(no phase marker yet)}  peak rss $(( peak_mb / 1024 ))G  log $(du -h "$OUT/alaska.log" 2>/dev/null | cut -f1)"
+        say "  ...$(( (now - started) / 60 )) min: ${phase:-(no phase marker yet)}  peak rss $(( peak_mb / 1024 ))G  footprint $(( peak_footprint_mb / 1024 ))G  log $(du -h "$OUT/alaska.log" 2>/dev/null | cut -f1)"
         next_beat=$(( now + HEARTBEAT ))
       fi
       sleep "$POLL"
     done
   fi
   wall=$(( $(date +%s) - started ))
+  swapped_in_mb=$(( ( $(pages_in)  - swpin0  ) / 256 ))
+  swapped_out_mb=$(( ( $(pages_out) - swpout0 ) / 256 ))
+  iowait_seconds=$(( ( $(iowait_ticks) - iow0 ) / 100 ))
+  cpu_seconds=$(( wall * $(nproc) ))
   say "process gone after $(( wall / 60 )) min; peak sampled rss $(( peak_mb / 1024 ))G over $samples samples"
+  say "  peak footprint (rss + own swap) $(( peak_footprint_mb / 1024 ))G"
+  say "  paged in ${swapped_in_mb}M, out ${swapped_out_mb}M; peak swap in use $(( peak_swap_mb / 1024 ))G; iowait ${iowait_seconds}s of ${cpu_seconds}s cpu"
 
   # ---- keep the evidence before the next launch truncates alaska.log
   safe_cp "$OUT/alaska.log" "$CAMP/${NAME}_alaska.log" 2>/dev/null
@@ -274,6 +303,13 @@ for N in $(seq "$FIRST" "$LAST"); do
     printf ' "das_reported_seconds": %s,\n'   "${das_seconds:-null}"
     printf ' "peak_rss_gb_sampled": %s,\n'    "$(awk -v m="$peak_mb" 'BEGIN{printf "%.2f", m/1024}')"
     printf ' "rss_samples": %s,\n'            "$samples"
+    printf ' "peak_footprint_gb": %s,\n'     "$(awk -v m="$peak_footprint_mb" 'BEGIN{printf "%.2f", m/1024}')"
+    printf ' "peak_swap_gb": %s,\n'          "$(awk -v m="$peak_swap_mb" 'BEGIN{printf "%.2f", m/1024}')"
+    printf ' "swapped_in_mb": %s,\n'         "$swapped_in_mb"
+    printf ' "swapped_out_mb": %s,\n'        "$swapped_out_mb"
+    printf ' "iowait_seconds": %s,\n'        "$iowait_seconds"
+    printf ' "cpu_seconds_available": %s,\n' "$cpu_seconds"
+    printf ' "swap_note": "swapped_in/out are machine-wide deltas of pswpin/pswpout over the run; peak_swap_gb is a level and may include memory parked before it started",\n'
     printf ' "rss_note": "maximum over samples taken every %ss across the JVM and its pyspark workers; not an instrumented peak",\n' "$POLL"
     printf ' "driver_memory": "%s",\n'        "${DAS_DRIVER_MEMORY:-64g}"
     printf ' "reader_partitions": %s,\n'      "${DAS_1940_READER_PARTITIONS:-2000}"
