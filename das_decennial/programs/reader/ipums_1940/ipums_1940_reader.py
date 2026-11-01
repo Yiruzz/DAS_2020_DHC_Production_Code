@@ -58,7 +58,7 @@ class person_recoder:
 
         # 1940s RACE has 6 values, which are re-indexed by subtracting 1, to match the 1940 DHCP Schema
         assert race in [1, 2, 3, 4, 5, 6], f'Incorrect hispan in input data for row: {str(row)}'
-        cenrace1940 = race
+        cenrace1940 = race - 1
 
         # 1940s CITIZEN has 5 values, recoded as follows to match the 1940 DHCP Schema:
         # N/A                                          (0) -> Citizen (1)

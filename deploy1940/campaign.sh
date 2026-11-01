@@ -2,12 +2,16 @@
 # Run several national DAS runs back to back, unattended, recording the utility,
 # time and memory of each and reclaiming its disk before the next.
 #
-#   bash deploy1940/campaign.sh 2 5                # das_rep2 .. das_rep5
-#   bash deploy1940/campaign.sh 2 5 --dry-run      # check everything, launch nothing
+#   bash deploy1940/campaign.sh 1 5                # das_fixed_rep1 .. das_fixed_rep5
+#   bash deploy1940/campaign.sh 1 5 --dry-run      # check everything, launch nothing
+#
+# The runs are named $PREFIX$N. das_rep1 .. das_rep6 were run before the race recode of
+# ipums_1940_reader.py was fixed, so the runs of the fixed reader are das_fixed_rep* and
+# leave those metrics in place.
 #
 # Detached, so it outlives the SSH session:
 #   mkdir -p ~/das1940/out/campaign
-#   setsid nohup bash ~/das1940/repo/deploy1940/campaign.sh 2 5 \
+#   setsid nohup bash ~/das1940/repo/deploy1940/campaign.sh 1 5 \
 #       > ~/das1940/out/campaign/console.log 2>&1 < /dev/null &
 #
 # Read ~/das1940/out/campaign/campaign.log. Not resumable by design: a lost
@@ -56,7 +60,10 @@ MAX_HOURS="${MAX_HOURS:-12}"
 POLL="${POLL:-60}"
 HEARTBEAT="${HEARTBEAT:-1800}"
 
-FIRST="${1:-2}"
+PREFIX="${PREFIX:-das_fixed_rep}"
+READER="$REPO_ROOT/das_decennial/programs/reader/ipums_1940/ipums_1940_reader.py"
+
+FIRST="${1:-1}"
 LAST="${2:-5}"
 DRY=0
 for a in "$@"; do [ "$a" = "--dry-run" ] && DRY=1; done
@@ -139,7 +146,7 @@ rss_mb() {
 esc() { printf '%s' "${1:-}" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 # ───────────────────────────────────────────────────────────── preflight
-say "=== campaign das_rep$FIRST .. das_rep$LAST  (dry-run=$DRY)"
+say "=== campaign $PREFIX$FIRST .. $PREFIX$LAST  (dry-run=$DRY)"
 say "    BASE      $BASE"
 say "    CENSUSDP  $CENSUSDP"
 say "    confined to those two trees; every write and delete is checked"
@@ -148,6 +155,12 @@ for need in "$DEPLOY/run_alaska.sh" "$DEPLOY/stage_times.py" \
             "$CENSUSDP/venv/bin/activate" "$BASE/data/EXT1940USCB.dat"; do
   [ -e "$need" ] || { say "MISSING $need -- refusing to start"; exit 1; }
 done
+# das_release.py now inverts CENRACE as the writer documents it, which is only right for a
+# release this fixed reader produced.
+if ! grep -qE '^\s*cenrace1940 = race - 1\s*$' "$READER"; then
+  say "$READER does not subtract 1 from race -- refusing to start"
+  exit 1
+fi
 # The shims have to be executable, and git does not carry that bit: every file under
 # deploy1940 is stored 100644, so a pull that rewrites bin/hadoop hands the host a
 # non-executable copy. setup_host.sh chmods them after a clone, which is why this only
@@ -180,7 +193,7 @@ say "    free disk $(free_gb)G, need ${MIN_FREE_GB}G per run"
 consecutive_failures=0
 
 for N in $(seq "$FIRST" "$LAST"); do
-  NAME="das_rep$N"
+  NAME="$PREFIX$N"
   REC="$CAMP/$NAME.json"
   say ""
   say "───────────────────────────────────────────── $NAME"
@@ -350,7 +363,7 @@ done
 say ""
 say "=== campaign done"
 say "one record per run, with time and memory:"
-ls -la "$CAMP"/das_rep*.json 2>/dev/null | tee -a "$LOG"
+ls -la "$CAMP"/"$PREFIX"*.json 2>/dev/null | tee -a "$LOG"
 say "utility:"
-ls -la "$METRICS_DIR"/das_rep*_metrics.json 2>/dev/null | tee -a "$LOG"
+ls -la "$METRICS_DIR"/"$PREFIX"*_metrics.json 2>/dev/null | tee -a "$LOG"
 say "disk $(free_gb)G free"
